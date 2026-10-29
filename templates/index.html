@@ -4,63 +4,104 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Mining AI Copilot</title>
+<title>Coal Mining AI Copilot</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="app">
 <aside class="sidebar">
-  <div class="brand"><div class="logo">⛏️</div><div><h1>Mining AI</h1><p>ERP · MII · ME · CAP · BTP</p></div></div>
-  <button onclick="loadProfile('Operacional')" class="navbtn op">⛏️ Operacional</button>
-  <button onclick="loadProfile('Mantenimiento')" class="navbtn ma">🛠️ Mantenimiento</button>
-  <button onclick="loadProfile('Financiero')" class="navbtn fi">💰 Financiero</button>
-  <button onclick="loadProfile('Ejecutivo')" class="navbtn ej">📊 Ejecutivo</button>
-  <button onclick="loadProfile('Comercial')" class="navbtn co">🚢 Comercial</button>
-  <button onclick="runSim('ERP')" class="navbtn erp">🧩 SAP ERP</button>
-  <button onclick="runSim('MII')" class="navbtn mii">📡 SAP MII</button>
-  <button onclick="runSim('ME')" class="navbtn me">🏭 SAP ME</button>
-  <button onclick="runSim('CAP')" class="navbtn cap">🔗 SAP CAP</button>
-  <button onclick="runSim('BTP')" class="navbtn btp">☁️ SAP BTP</button>
+  <div class="brand">
+    <img class="brand-logo" src="/static/zyma-360-logo.png" alt="ZYMA 360 Smart Digital Manufacturing">
+    <p class="brand-product">Coal Mining AI Copilot</p>
+    <p>Extracción · Calidad · Seguridad</p>
+  </div>
+  <div class="side-title">PROCESO</div>
+  <button onclick="openModule('predictiva',this)" class="navbtn module-btn">
+    <span>📈 Analítica predictiva</span><small>Salud, riesgo de falla y diagnóstico</small>
+  </button>
+  <button onclick="openModule('oee',this)" class="navbtn module-btn">
+    <span>⚙️ Eficiencia OEE</span><small>Disponibilidad, rendimiento y calidad</small>
+  </button>
+  <button onclick="openModule('paradas',this)" class="navbtn module-btn">
+    <span>⏱️ Paradas</span><small>Eventos y pérdidas de extracción</small>
+  </button>
+  <button onclick="openModule('turno',this)" class="navbtn module-btn active">
+    <span>🗓️ Turno</span><small>Plan, avance, flota y carbón ROM</small>
+  </button>
+  <div class="side-title">CONOCIMIENTO</div>
+  <button onclick="openModule('documentos',this)" class="navbtn module-btn">
+    <span>📚 Documentos RAG</span><small>Procedimientos, manuales y normativa</small>
+  </button>
+  <div class="session-card">
+    <span>SESIÓN ACTIVA</span>
+    <strong id="session_name">{{ session.get('name','Usuario') }}</strong>
+    <small id="session_username">@{{ session.get('username','usuario') }}</small>
+    <button type="button" id="logout_button">Cerrar sesión</button>
+  </div>
 </aside>
 
 <main>
 <section class="topbar">
   <div>
-    <h2>Mining AI Copilot Interactivo</h2>
-    <p>Dashboard vertical minero con KPIs, barras, gráficos, simuladores SAP y respuestas automáticas por perfil.</p>
+    <h2>Copiloto de extracción de carbón</h2>
+    <p>Control integrado de carbón ROM, descapote, flota, calidad, seguridad, costos y despacho.</p>
   </div>
   <div class="live">● EN VIVO</div>
 </section>
 
-<section class="vertical-grid">
+<section class="predictive-view" id="predictive_view" hidden>
+  <div class="predictive-head">
+    <div><span class="eyebrow">RESUMEN PREDICTIVO</span><h2>Salud de equipos de extracción de carbón</h2><p>Monitoreo multivariable de 10 activos críticos de mina, transporte y manejo de carbón.</p></div>
+    <div class="predictive-refresh"><small id="predictive_updated">Sin actualizar</small><button type="button" id="predictive_refresh">Actualizar vista</button></div>
+    <div class="weight-row" id="predictive_weights"></div>
+  </div>
+  <div class="predictive-summary">
+    <article class="summary-card healthy"><span>Máquinas saludables</span><strong id="healthy_count">--</strong><small>Operación estable</small></article>
+    <article class="summary-card warning"><span>Máquinas en alerta</span><strong id="warning_count">--</strong><small>Requieren seguimiento</small></article>
+    <article class="summary-card critical"><span>Máquinas críticas</span><strong id="critical_count">--</strong><small>Acción prioritaria</small></article>
+    <article class="summary-card average"><span>Riesgo promedio</span><strong id="average_risk">--</strong><small>Exposición calculada</small></article>
+  </div>
+  <article class="predictive-decision" id="predictive_decision"></article>
+  <article class="predictive-assets">
+    <div class="asset-toolbar"><div><span class="eyebrow">CONTROL DE ACTIVOS</span><h3>Diagnóstico por máquina</h3></div><div class="predictive-filters" id="predictive_filters"><button class="active" data-filter="all">Todas</button><button data-filter="healthy">Healthy</button><button data-filter="warning">Warning</button><button data-filter="critical">Critical</button></div></div>
+    <div class="predictive-table-wrap"><table class="predictive-table"><thead><tr><th>Máquina</th><th>Uso</th><th>Vibración</th><th>Temperatura</th><th>Corriente</th><th>RPM</th><th>Presión</th><th>Riesgo</th><th>Estado</th><th>Diagnóstico</th></tr></thead><tbody id="predictive_rows"></tbody></table></div>
+  </article>
+  <p class="predictive-disclaimer" id="predictive_disclaimer"></p>
+</section>
+<dialog class="predictive-dialog" id="predictive_dialog">
+  <div class="dialog-head"><div><span class="eyebrow">DIAGNÓSTICO MULTIVARIABLE</span><h3 id="predictive_dialog_title"></h3></div><button type="button" id="predictive_dialog_close" aria-label="Cerrar">×</button></div>
+  <div class="dialog-body" id="predictive_dialog_body"></div>
+</dialog>
+
+<section class="vertical-grid mining-dashboard">
   <div class="mini-card orange"><span>Cumplimiento</span><strong id="kpi_cumplimiento">--</strong><small>Plan mina</small></div>
-  <div class="mini-card blue"><span>OEE Planta</span><strong id="kpi_oee">--</strong><small>Chancado</small></div>
+  <div class="mini-card blue"><span>Disponibilidad</span><strong id="kpi_disponibilidad">--</strong><small>Flota y planta</small></div>
   <div class="mini-card red"><span>Pérdida</span><strong id="kpi_perdida">--</strong><small>USD M</small></div>
-  <div class="mini-card green"><span>Stock mineral</span><strong id="kpi_stock">--</strong><small>Ton</small></div>
-  <div class="mini-card cyan"><span>OTIF</span><strong id="kpi_otif">--</strong><small>Embarques</small></div>
+  <div class="mini-card green"><span>Stock carbón</span><strong id="kpi_stock">--</strong><small>Ton</small></div>
+  <div class="mini-card cyan"><span>Calidad conforme</span><strong id="kpi_calidad">--</strong><small>Lotes</small></div>
   <div class="mini-card purple"><span>Score Riesgo</span><strong id="kpi_score">--</strong><small>Ejecutivo</small></div>
-  <div class="mini-card dark"><span>Órdenes ME</span><strong id="kpi_me">--</strong><small>Mina</small></div>
-  <div class="mini-card teal"><span>Eventos MII</span><strong id="kpi_mii">--</strong><small>Planta</small></div>
-  <div class="mini-card pink"><span>Servicios CAP</span><strong id="kpi_cap">--</strong><small>APIs</small></div>
-  <div class="mini-card slate"><span>Workflow BTP</span><strong id="kpi_btp">--</strong><small>Aprobaciones</small></div>
+  <div class="mini-card dark"><span>Órdenes críticas</span><strong id="kpi_ordenes">--</strong><small>Mantenimiento</small></div>
+  <div class="mini-card teal"><span>Alertas HSE</span><strong id="kpi_alertas">--</strong><small>Frentes</small></div>
+  <div class="mini-card pink"><span>Cenizas</span><strong id="kpi_cenizas">--</strong><small>Calidad ROM</small></div>
+  <div class="mini-card slate"><span>Stripping</span><strong id="kpi_stripping">--</strong><small>bcm/t</small></div>
 </section>
 
-<section class="layout">
+<section class="layout mining-dashboard">
   <div class="column">
     <div class="card">
       <div class="section-title"><h3>Barras operacionales</h3><span>movimiento</span></div>
-      <div class="barline"><label>Pala P-07 <b id="txt_pala"></b></label><div><i id="bar_pala"></i></div></div>
-      <div class="barline"><label>Chancado primario <b id="txt_chancado"></b></label><div><i id="bar_chancado"></i></div></div>
+      <div class="barline"><label>Excavadora EX-07 <b id="txt_excavadora"></b></label><div><i id="bar_excavadora"></i></div></div>
+      <div class="barline"><label>Trituración primaria <b id="txt_trituracion"></b></label><div><i id="bar_trituracion"></i></div></div>
       <div class="barline"><label>Disponibilidad flota <b id="txt_flota"></b></label><div><i id="bar_flota"></i></div></div>
-      <div class="barline"><label>OTIF embarques <b id="txt_otif"></b></label><div><i id="bar_otif"></i></div></div>
+      <div class="barline"><label>Lotes conformes <b id="txt_calidad"></b></label><div><i id="bar_calidad"></i></div></div>
     </div>
 
     <div class="card">
-      <div class="section-title"><h3>Producción y stock</h3><span>toneladas</span></div>
+      <div class="section-title"><h3>Producción ROM y patios</h3><span>toneladas</span></div>
       <div class="stack">
-        <div class="stack-item available"><strong id="toneladas">--</strong><span>Ton planificadas</span></div>
-        <div class="stack-item reserved"><strong id="stock">--</strong><span>Stock mineral</span></div>
-        <div class="stack-item blocked"><strong id="contratos">--</strong><span>Contratos riesgo</span></div>
+        <div class="stack-item available"><strong id="rom">--</strong><span>Carbón ROM</span></div>
+        <div class="stack-item reserved"><strong id="stock">--</strong><span>Stock de carbón</span></div>
+        <div class="stack-item blocked"><strong id="lotes_riesgo">--</strong><span>Lotes en riesgo</span></div>
       </div>
     </div>
   </div>
@@ -84,7 +125,7 @@
 
   <div class="column">
     <div class="card chart-card">
-      <div class="section-title"><h3>Gráfico de impacto</h3><span>downtime · costo · contrato</span></div>
+      <div class="section-title"><h3>Impacto operacional</h3><span>seguridad · producción · calidad</span></div>
       <div class="donut"><div class="donut-inner"><strong id="donut_value">--</strong><span>score</span></div></div>
       <div class="legend">
         <div><b class="dot red-dot"></b> Downtime</div>
@@ -94,15 +135,15 @@
     </div>
 
     <div class="card">
-      <div class="section-title"><h3>Finanzas rápidas</h3><span>movimiento</span></div>
-      <div class="finance-row"><span>Costo/Ton</span><strong id="costo_ton">--</strong></div>
+      <div class="section-title"><h3>Indicadores de extracción</h3><span>carbón ROM</span></div>
+      <div class="finance-row"><span>Costo/t ROM</span><strong id="costo_ton">--</strong></div>
       <div class="finance-row"><span>Downtime</span><strong id="downtime">--</strong></div>
       <div class="finance-row"><span>Activos críticos</span><strong id="activos">--</strong></div>
-      <div class="finance-row"><span>Combustible</span><strong id="combustible">--</strong></div>
+      <div class="finance-row"><span>Humedad</span><strong id="humedad">--</strong></div>
     </div>
 
     <div class="card">
-      <div class="section-title"><h3>Simuladores SAP</h3><span>ERP · MII · ME · CAP · BTP</span></div>
+      <div class="section-title"><h3>Fuentes simuladas</h3><span>ERP · planta · dispatch · calidad</span></div>
       <div id="sim_result" class="sim-result">Selecciona un simulador SAP en el menú lateral.</div>
     </div>
 

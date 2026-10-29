@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Crear usuario · Coal Mining AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-brand">
+      <img src="{{ url_for('static', filename='zyma-360-logo.png') }}" alt="ZYMA 360 Smart Digital Manufacturing">
+      <span class="eyebrow">NUEVO USUARIO</span>
+      <h1>Coal Mining AI Copilot</h1>
+      <p>El usuario se almacenará de forma segura en PostgreSQL.</p>
+      <div class="brand-line"><i></i><span>Contraseñas protegidas mediante hash</span></div>
+    </section>
+    <section class="auth-card">
+      <div><span class="eyebrow">REGISTRO</span><h2>Crear usuario</h2><p>Completa los datos para acceder al copiloto.</p></div>
+      {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="notice {{ category }}" role="alert">{{ message }}</div>{% endfor %}{% endwith %}
+      <form method="post">
+        <label>Nombre completo<input name="name" value="{{ request.form.get('name','') }}" autocomplete="name" maxlength="120" required autofocus></label>
+        <label>Correo<input name="email" type="email" value="{{ request.form.get('email','') }}" autocomplete="email" maxlength="255" required></label>
+        <label>Nombre de usuario<input name="username" value="{{ request.form.get('username','') }}" autocomplete="username" minlength="3" maxlength="40" pattern="[A-Za-z0-9_.-]+" required></label>
+        <div class="password-grid">
+          <label>Contraseña<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+          <label>Confirmar contraseña<input name="confirm_password" type="password" autocomplete="new-password" minlength="10" required></label>
+        </div>
+        <button type="submit">Crear usuario</button>
+      </form>
+      <p class="auth-link">¿Ya tienes una cuenta? <a href="{{ url_for('login') }}">Iniciar sesión</a></p>
+    </section>
+  </main>
+</body>
+</html>

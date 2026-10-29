@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Iniciar sesión · Coal Mining AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-brand">
+      <img src="{{ url_for('static', filename='zyma-360-logo.png') }}" alt="ZYMA 360 Smart Digital Manufacturing">
+      <span class="eyebrow">MINERÍA INTELIGENTE</span>
+      <h1>Coal Mining AI Copilot</h1>
+      <p>Analítica operacional y predictiva para extracción de carbón.</p>
+      <div class="brand-line"><i></i><span>Seguridad · Confiabilidad · Producción</span></div>
+    </section>
+    <section class="auth-card">
+      <div><span class="eyebrow">ACCESO SEGURO</span><h2>Iniciar sesión</h2><p>Ingresa con tu usuario o correo registrado.</p></div>
+      {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="notice {{ category }}" role="alert">{{ message }}</div>{% endfor %}{% endwith %}
+      <form method="post">
+        <label>Usuario o correo<input name="login" autocomplete="username" maxlength="255" required autofocus></label>
+        <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Ingresar a la aplicación</button>
+      </form>
+      <p class="auth-link">¿Aún no tienes acceso? <a href="{{ url_for('register') }}">Crear usuario</a></p>
+    </section>
+  </main>
+</body>
+</html>

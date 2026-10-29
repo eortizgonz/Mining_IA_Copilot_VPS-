@@ -1,35 +1,84 @@
 
-async function getJson(url){const r=await fetch(url);return await r.json();}
+async function getJson(url,options={}){const r=await fetch(url,options);const data=await r.json();if(!r.ok)throw new Error(data.error||'No fue posible consultar los datos');return data;}
 function setBar(id,val){document.getElementById(id).style.width=val+'%';}
+let predictiveData=null,predictiveFilter='all';
+const esc=value=>String(value).replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+async function openModule(module,button){
+ document.querySelectorAll('.module-btn').forEach(item=>item.classList.toggle('active',item===button));
+ const predictive=document.getElementById('predictive_view');
+ const dashboard=document.querySelectorAll('.mining-dashboard');
+ if(module==='predictiva'){
+  predictive.hidden=false;dashboard.forEach(item=>item.hidden=true);
+  await loadPredictive();return;
+ }
+ predictive.hidden=true;dashboard.forEach(item=>item.hidden=false);
+ if(module==='oee'){await loadProfile('Operacional');return;}
+ if(module==='turno'){await loadProfile('Operacional');return;}
+ if(module==='paradas'){
+  await runSim('MII');
+  document.getElementById('profile_card').innerHTML='<h3>⏱️ Paradas y pérdidas</h3><p>Seguimiento de eventos en excavadoras, camiones, trituración y bandas transportadoras.</p><p><strong>Objetivo:</strong> reducir indisponibilidad y toneladas de carbón ROM en riesgo.</p>';
+  document.getElementById('question_list').innerHTML='';
+  return;
+ }
+ document.getElementById('profile_card').innerHTML='<h3>📚 Documentos RAG</h3><p>Base de conocimiento para procedimientos operativos, manuales de equipos, estándares HSE, planes mineros y especificaciones de calidad.</p><p><strong>Próxima integración:</strong> carga, indexación y consulta contextual de documentos autorizados.</p>';
+ document.getElementById('question_list').innerHTML='';
+ document.getElementById('answer_box').innerHTML='<h3>Conocimiento minero</h3><p>Este módulo quedará preparado para conectar manuales, procedimientos y normativa mediante búsqueda RAG.</p>';
+}
+async function loadPredictive(){
+ const button=document.getElementById('predictive_refresh');button.disabled=true;button.textContent='Actualizando…';
+ try{predictiveData=await getJson('/api/predictive');renderPredictive();}
+ finally{button.disabled=false;button.textContent='Actualizar vista';}
+}
+function renderPredictive(){
+ const d=predictiveData,s=d.summary;
+ document.getElementById('predictive_updated').textContent='Última lectura: '+new Date(d.generated_at).toLocaleString('es-CO')+' · '+(d.source==='postgresql'?'PostgreSQL':'simulación');
+ document.getElementById('predictive_weights').innerHTML=d.weights.map(w=>`<span>${esc(w.label)} ${w.weight}%</span>`).join('');
+ document.getElementById('healthy_count').textContent=s.healthy;document.getElementById('warning_count').textContent=s.warning;
+ document.getElementById('critical_count').textContent=s.critical;document.getElementById('average_risk').textContent=s.average_risk+'%';
+ const r=d.recommended;
+ document.getElementById('predictive_decision').innerHTML=`<span class="eyebrow">DECISIÓN RECOMENDADA</span><div><strong>${esc(r.id)} · ${esc(r.name)} concentra el mayor riesgo (${r.risk}%).</strong><p>Factores principales: ${r.factors.map(f=>esc(f.label)+' ('+f.contribution+' puntos)').join(' y ')}. ${esc(r.action)}</p></div><b class="status critical">Crítica</b>`;
+ document.getElementById('predictive_disclaimer').textContent=d.disclaimer;renderPredictiveRows();
+}
+function renderPredictiveRows(){
+ const rows=predictiveData.machines.filter(m=>predictiveFilter==='all'||m.status===predictiveFilter);
+ document.getElementById('predictive_rows').innerHTML=rows.map(m=>`<tr><td><strong>${esc(m.id)}</strong><small>${esc(m.name)} · ${esc(m.area)}</small></td><td>${m.usage_hours.toLocaleString('es-CO')} h</td><td>${m.vibration} mm/s</td><td>${m.temperature} °C</td><td>${m.current} A</td><td>${m.rpm.toLocaleString('es-CO')}</td><td>${m.pressure} bar</td><td><div class="risk-cell"><i><b style="width:${m.risk}%"></b></i><strong>${m.risk}%</strong></div></td><td><span class="status ${m.status}">${m.status}</span></td><td><button class="factor-button" data-machine="${esc(m.id)}">Ver factores</button></td></tr>`).join('');
+ document.querySelectorAll('.factor-button').forEach(button=>button.addEventListener('click',()=>showPredictiveFactors(button.dataset.machine)));
+}
+function showPredictiveFactors(id){
+ const m=predictiveData.machines.find(item=>item.id===id),dialog=document.getElementById('predictive_dialog');
+ document.getElementById('predictive_dialog_title').textContent=`${m.id} · ${m.name}`;
+ document.getElementById('predictive_dialog_body').innerHTML=`<p>${esc(m.area)} · riesgo calculado <strong>${m.risk}%</strong></p>${m.factors.map(f=>`<div class="factor-line"><span>${esc(f.label)}</span><i><b style="width:${f.score}%"></b></i><strong>${f.contribution} pts</strong></div>`).join('')}<p class="dialog-note">Validar las señales, límites y acciones con ingeniería, HSE y el manual del fabricante antes de intervenir.</p>`;
+ dialog.showModal();
+}
 async function updateKpis(){
  const k=await getJson('/api/kpis');
  document.getElementById('kpi_cumplimiento').innerText=k.cumplimiento+'%';
- document.getElementById('kpi_oee').innerText=k.oee+'%';
+ document.getElementById('kpi_disponibilidad').innerText=k.disponibilidad+'%';
  document.getElementById('kpi_perdida').innerText='USD '+k.perdida+'M';
  document.getElementById('kpi_stock').innerText=k.stock;
- document.getElementById('kpi_otif').innerText=k.otif+'%';
+ document.getElementById('kpi_calidad').innerText=k.calidad+'%';
  document.getElementById('kpi_score').innerText=k.score;
- document.getElementById('kpi_me').innerText=k.ordenes_me;
- document.getElementById('kpi_mii').innerText=k.eventos_mii;
- document.getElementById('kpi_cap').innerText=k.servicios_cap;
- document.getElementById('kpi_btp').innerText=k.workflows_btp;
- document.getElementById('txt_pala').innerText=k.pala_p07+'%'; setBar('bar_pala',k.pala_p07);
- document.getElementById('txt_chancado').innerText=k.chancado+'%'; setBar('bar_chancado',k.chancado);
+ document.getElementById('kpi_ordenes').innerText=k.ordenes;
+ document.getElementById('kpi_alertas').innerText=k.alertas;
+ document.getElementById('kpi_cenizas').innerText=k.cenizas+'%';
+ document.getElementById('kpi_stripping').innerText=k.stripping;
+ document.getElementById('txt_excavadora').innerText=k.excavadora+'%'; setBar('bar_excavadora',k.excavadora);
+ document.getElementById('txt_trituracion').innerText=k.trituracion+'%'; setBar('bar_trituracion',k.trituracion);
  document.getElementById('txt_flota').innerText=k.flota+'%'; setBar('bar_flota',k.flota);
- document.getElementById('txt_otif').innerText=k.otif+'%'; setBar('bar_otif',k.otif);
- document.getElementById('toneladas').innerText=k.toneladas;
+ document.getElementById('txt_calidad').innerText=k.calidad+'%'; setBar('bar_calidad',k.calidad);
+ document.getElementById('rom').innerText=k.rom.toLocaleString('es-CO');
  document.getElementById('stock').innerText=k.stock;
- document.getElementById('contratos').innerText=k.pedidos;
+ document.getElementById('lotes_riesgo').innerText=k.lotes_riesgo;
  document.getElementById('donut_value').innerText=k.score;
  document.getElementById('costo_ton').innerText='USD '+k.costo_ton;
  document.getElementById('downtime').innerText=k.downtime+' h';
  document.getElementById('activos').innerText=k.activos_criticos;
- document.getElementById('combustible').innerText=k.combustible+'%';
+ document.getElementById('humedad').innerText=k.humedad+'%';
 }
 async function loadProfile(perfil){
  const data=await getJson('/api/profile/'+perfil); const c=data.info.color;
  const profile=document.getElementById('profile_card'); profile.style.borderLeftColor=c;
- profile.innerHTML=`<h3>${data.info.icono} ${data.info.titulo}</h3><p>${data.info.resumen}</p><p><strong>Acción principal:</strong> ${data.info.accion}</p><div class="profile-badges"><span class="badge">${perfil}</span><span class="badge">ERP</span><span class="badge">MII</span><span class="badge">ME</span><span class="badge">CAP</span><span class="badge">BTP</span></div>`;
+ profile.innerHTML=`<h3>${data.info.icono} ${data.info.titulo}</h3><p>${data.info.resumen}</p><p><strong>Acción principal:</strong> ${data.info.accion}</p><div class="profile-badges"><span class="badge">${perfil}</span><span class="badge">ROM</span><span class="badge">Dispatch</span><span class="badge">Calidad</span><span class="badge">HSE</span></div>`;
  const list=document.getElementById('question_list'); list.innerHTML='';
  data.preguntas.forEach(q=>{const div=document.createElement('div');div.className='question';div.innerHTML=`<strong>${q.pregunta}</strong><small>${q.kpi} · ${q.fuente}</small>`;div.onclick=()=>showAnswer(q,c);list.appendChild(div);});
  if(data.preguntas.length){showAnswer(data.preguntas[0],c);}
@@ -46,4 +95,8 @@ async function loadActions(){
  const items=await getJson('/api/actions'); const box=document.getElementById('actions'); box.innerHTML='';
  items.forEach(a=>{let color=a.color==='red'?'#ef4444':a.color==='orange'?'#f59e0b':a.color==='blue'?'#3b82f6':a.color==='green'?'#22c55e':a.color==='yellow'?'#eab308':a.color==='purple'?'#8b5cf6':a.color==='pink'?'#ec4899':'#06b6d4';const div=document.createElement('div');div.className='action';div.style.borderLeftColor=color;div.innerHTML=`<strong>${a.prioridad} · ${a.area}</strong><span>${a.accion} — ${a.responsable}</span>`;box.appendChild(div);});
 }
-updateKpis();loadProfile('Operacional');loadActions();runSim('ERP');setInterval(updateKpis,2200);
+document.getElementById('predictive_refresh').addEventListener('click',()=>loadPredictive().catch(console.error));
+document.getElementById('predictive_filters').querySelectorAll('[data-filter]').forEach(button=>button.addEventListener('click',()=>{predictiveFilter=button.dataset.filter;document.querySelectorAll('#predictive_filters button').forEach(item=>item.classList.toggle('active',item===button));renderPredictiveRows();}));
+document.getElementById('predictive_dialog_close').addEventListener('click',()=>document.getElementById('predictive_dialog').close());
+document.getElementById('logout_button').addEventListener('click',async()=>{const button=document.getElementById('logout_button');button.disabled=true;try{await getJson('/api/auth/logout',{method:'POST'});location.href='/login';}catch(error){button.disabled=false;console.error(error);}});
+updateKpis().catch(console.error);loadProfile('Operacional').catch(console.error);loadActions().catch(console.error);runSim('ERP').catch(console.error);setInterval(()=>updateKpis().catch(console.error),10000);

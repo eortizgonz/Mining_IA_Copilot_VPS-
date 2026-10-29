@@ -1,0 +1,42 @@
+services:
+  collector:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://mining:mining_change_me@db:5432/mining_ai
+      PREDICTIVE_CAPTURE_INTERVAL: ${PREDICTIVE_CAPTURE_INTERVAL:-900}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "python scripts/init_database.py && flask --app app run-reading-collector --interval-seconds $${PREDICTIVE_CAPTURE_INTERVAL:-900}"]
+    restart: unless-stopped
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://mining:mining_change_me@db:5432/mining_ai
+      SECRET_KEY: ${SECRET_KEY:-development-change-this-secret}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      PORT: 5050
+    ports:
+      - "5050:5050"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "python scripts/init_database.py && gunicorn --bind 0.0.0.0:$${PORT:-5050} app:app"]
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: mining_ai
+      POSTGRES_USER: mining
+      POSTGRES_PASSWORD: mining_change_me
+    ports:
+      - "5432:5432"
+    volumes:
+      - mining_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mining -d mining_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mining_postgres_data:
