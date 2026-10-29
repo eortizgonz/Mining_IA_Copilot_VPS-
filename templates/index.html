@@ -176,6 +176,16 @@
 </section>
 </main>
 </div>
+<button type="button" class="ai-launcher" id="ai_launcher" aria-label="Abrir copiloto IA">✦</button>
+<aside class="ai-chat" id="ai_chat" aria-label="Copiloto IA">
+  <header class="ai-head"><div><b>Copiloto IA Minero</b><small>Predictivo · RAG · Diagnóstico</small></div><button type="button" id="ai_close" aria-label="Cerrar">×</button></header>
+  <div class="ai-messages" id="ai_messages"><div class="ai-message assistant">Hola. Puedo consultar la telemetría predictiva y los manuales indexados de las máquinas mineras.</div></div>
+  <form class="ai-compose" id="ai_form">
+    <select id="ai_mode" aria-label="Modo de consulta"><option value="auto">Automático</option><option value="predictive">Analítica predictiva</option><option value="manuals">Documentos RAG</option><option value="troubleshooting">Diagnóstico de falla</option></select>
+    <textarea id="ai_question" minlength="5" maxlength="2000" placeholder="Pregunta por una máquina, lectura, riesgo o procedimiento…" required></textarea>
+    <button type="submit" id="ai_send">Consultar con IA</button>
+  </form>
+</aside>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -22,7 +22,7 @@ def _ollama(path, payload):
     base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     request = urllib.request.Request(f"{base_url}{path}", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=int(os.getenv("OLLAMA_TIMEOUT", "300"))) as response:
+        with urllib.request.urlopen(request, timeout=int(os.getenv("OLLAMA_TIMEOUT", "600"))) as response:
             return json.loads(response.read())
     except (urllib.error.URLError, TimeoutError) as exc:
         raise RuntimeError(f"No fue posible conectar con Ollama en {base_url}: {exc}") from exc
@@ -111,7 +111,7 @@ def retrieve(question, limit=4):
         return cursor.fetchall()
 
 
-def answer_rag(question):
+def answer_rag(question, mode="manuals"):
     chunks = retrieve(question)
     if not chunks:
         raise ValueError("No hay documentación indexada.")
@@ -121,7 +121,8 @@ def answer_rag(question):
         evidence.append(f"[{label}]\n{chunk['content']}")
         if label not in sources:
             sources.append(label)
-    prompt = f"""Responde en español usando exclusivamente la evidencia recuperada. No inventes datos.
+    instruction = "Guía el diagnóstico paso a paso desde una parada segura y el aislamiento de energías. " if mode == "troubleshooting" else "Responde de forma precisa a partir del manual. "
+    prompt = f"""{instruction}Responde en español usando exclusivamente la evidencia recuperada. No inventes datos.
 Prioriza parada segura, control de energías, LOTO, HSE y las instrucciones del fabricante.
 No autorices retirar guardas, anular protecciones ni intervenir equipos energizados.
 Si falta evidencia, indícalo. Cita las fuentes entre corchetes. Máximo 220 palabras, texto plano.
@@ -134,3 +135,70 @@ PREGUNTA: {question}"""
         {"role": "system", "content": "Eres un copiloto documental de mantenimiento para extracción y manejo de carbón. No sustituyes al personal autorizado."},
         {"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.1, "num_ctx": 4096, "num_predict": 320}})
     return result["message"]["content"], sources
+
+
+def resolve_mode(question, requested="auto"):
+    if requested != "auto":
+        return requested
+    normalized = question.casefold()
+    predictive_terms = ("riesgo", "predictiv", "vibración", "vibracion", "temperatura", "corriente", "rpm", "presión", "presion", "telemetría", "telemetria", "lectura", "máquina crítica", "maquina critica")
+    troubleshooting_terms = ("alarma", "falla", "fallo", "no arranca", "detenida", "atasco", "ruido", "diagnóstico", "diagnostico")
+    if any(term in normalized for term in predictive_terms):
+        return "predictive"
+    if any(term in normalized for term in troubleshooting_terms):
+        return "troubleshooting"
+    return "manuals"
+
+
+def answer_predictive(question):
+    from database import latest_machine_readings
+
+    rows = latest_machine_readings()
+    if not rows:
+        raise ValueError("No existen lecturas predictivas disponibles en PostgreSQL.")
+    normalized = question.casefold()
+    selected = [row for row in rows if row["id"].casefold() in normalized or row["name"].casefold() in normalized]
+    selected = selected or sorted(rows, key=lambda row: float(row["risk"]), reverse=True)[:5]
+    counts = {state: sum(row["status"] == state for row in rows) for state in ("healthy", "warning", "critical")}
+    average = round(sum(float(row["risk"]) for row in rows) / len(rows), 1)
+    context = [f"Resumen de {len(rows)} máquinas: {counts['healthy']} saludables, {counts['warning']} en alerta y {counts['critical']} críticas. Riesgo promedio {average}%."]
+    sources = []
+    for row in selected[:5]:
+        recorded_at = row["recorded_at"].isoformat()
+        context.append(
+            f"{row['id']} {row['name']} ({row['area']}), lectura {recorded_at}: riesgo {float(row['risk']):.1f}%, estado {row['status']}; "
+            f"vibración {float(row['vibration']):.2f} mm/s de máximo {float(row['max_vibration']):.2f}; temperatura {float(row['temperature']):.1f} °C de máximo {float(row['max_temperature']):.1f}; "
+            f"corriente {float(row['current']):.1f} A frente a nominal {float(row['rated_current']):.1f}; RPM {float(row['rpm']):.0f} frente a nominal {float(row['nominal_rpm']):.0f}; "
+            f"presión {float(row['pressure']):.2f} bar de máxima {float(row['max_pressure']):.2f}; uso {float(row['usage_hours']):.1f} h de máximo {float(row['max_usage_hours']):.1f}. Explicación calculada: {row['explanation']}"
+        )
+        sources.append(f"PostgreSQL · machine_readings · {row['id']} · {recorded_at}")
+    manual_chunks = retrieve(question, limit=3)
+    evidence = []
+    for chunk in manual_chunks:
+        label = f"{chunk['document_name']} · página {chunk['page']}"
+        evidence.append(f"[{label}]\n{chunk['content']}")
+        if label not in sources:
+            sources.append(label)
+    prompt = f"""Responde en español usando solo los datos actuales y los manuales suministrados. Distingue lectura, límite de referencia, interpretación y acción.
+No inventes ni recalcules cifras. El riesgo es un índice demostrativo, no una probabilidad estadística validada. Prioriza parada segura y LOTO. Cita fuentes entre corchetes. Máximo 240 palabras, texto plano.
+
+DATOS ACTUALES:
+{chr(10).join(context)}
+
+MANUALES RECUPERADOS:
+{chr(10).join(evidence)}
+
+PREGUNTA: {question}"""
+    result = _ollama("/api/chat", {"model": os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b"), "messages": [
+        {"role": "system", "content": "Eres un copiloto de mantenimiento predictivo para minería de carbón. Sé fiel a la telemetría y documentación proporcionadas."},
+        {"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.0, "num_ctx": 4096, "num_predict": 380}})
+    return result["message"]["content"], sources
+
+
+def answer_chat(question, requested_mode="auto"):
+    mode = resolve_mode(question, requested_mode)
+    if mode == "predictive":
+        answer, sources = answer_predictive(question)
+    else:
+        answer, sources = answer_rag(question, mode)
+    return answer, sources, mode

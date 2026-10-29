@@ -20,12 +20,13 @@ from database import (
     find_user,
     find_user_by_email,
     latest_machine_readings,
+    machine_risk_trends,
     password_reset_token_is_valid,
 )
 from mailer import send_password_reset
 from predictive_collector import append_snapshot
-from mining_machine_manuals import ingest_machine_manuals
-from rag_service import ALLOWED_DOCUMENT_EXTENSIONS, answer_rag, delete_document, ingest_document, list_documents
+from mining_machine_manuals import diagnostic_for, ingest_machine_manuals
+from rag_service import ALLOWED_DOCUMENT_EXTENSIONS, answer_chat, delete_document, ingest_document, list_documents
 
 app = Flask(__name__)
 app.config.update(
@@ -257,6 +258,7 @@ def predictive_snapshot():
 
 def database_predictive_snapshot(rows):
     machines = []
+    trends = machine_risk_trends()
     for row in rows:
         rpm_deviation = abs(float(row["rpm"]) - float(row["nominal_rpm"])) / max(float(row["nominal_rpm"]), 1) * 100
         scores = {
@@ -268,14 +270,18 @@ def database_predictive_snapshot(rows):
             "Presión": min(100, float(row["pressure"]) / max(float(row["max_pressure"]), 1) * 100),
         }
         factors = [{"label": label, "score": round(score, 1), "contribution": round(score * PREDICTIVE_WEIGHTS[label] / 100, 1)} for label, score in scores.items()]
-        machines.append({
+        machine = {
             "id": row["id"], "name": row["name"], "area": row["area"], "machine_type": row["machine_type"],
             "recorded_at": row["recorded_at"].isoformat(), "usage_hours": float(row["usage_hours"]),
             "vibration": float(row["vibration"]), "temperature": float(row["temperature"]),
             "current": float(row["current"]), "rpm": round(float(row["rpm"])), "rpm_deviation": round(rpm_deviation, 1),
             "pressure": float(row["pressure"]), "risk": float(row["risk"]), "status": row["status"],
             "explanation": row["explanation"], "factors": sorted(factors, key=lambda item: item["contribution"], reverse=True),
-        })
+            "limits": {"usage_hours": float(row["max_usage_hours"]), "vibration": float(row["max_vibration"]), "temperature": float(row["max_temperature"]), "current": float(row["rated_current"]), "nominal_rpm": float(row["nominal_rpm"]), "pressure": float(row["max_pressure"])},
+            "trend_24h": trends.get(row["id"], {"samples": 1, "average": float(row["risk"]), "minimum": float(row["risk"]), "maximum": float(row["risk"])}),
+        }
+        machine["manual"] = diagnostic_for(machine, machine["factors"], machine["risk"], machine["status"])
+        machines.append(machine)
     return sorted(machines, key=lambda item: item["risk"], reverse=True)
 
 
@@ -364,11 +370,14 @@ def api_database_health():
 def copilot_chat():
     body = request.get_json(silent=True) or {}
     question = body.get("question", "").strip() if isinstance(body.get("question"), str) else ""
+    mode = body.get("mode", "auto")
     if len(question) < 5 or len(question) > 2000:
         return jsonify({"error": "La pregunta debe tener entre 5 y 2000 caracteres."}), 400
+    if mode not in {"auto", "manuals", "troubleshooting", "predictive"}:
+        return jsonify({"error": "Modo de consulta inválido."}), 400
     try:
-        answer, sources = answer_rag(question)
-        return jsonify({"answer": answer, "sources": sources})
+        answer, sources, resolved_mode = answer_chat(question, mode)
+        return jsonify({"answer": answer, "sources": sources, "mode": resolved_mode})
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except RuntimeError as exc:

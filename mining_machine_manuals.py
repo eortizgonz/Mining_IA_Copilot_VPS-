@@ -15,6 +15,46 @@ PROFILES = {
     "BA-03": ("desagüe de mina", "bomba, impulsor, sello, rodamientos, motor, succión y descarga"),
 }
 
+SCENARIOS = {
+    "EX-07": "degradación hidráulica, holgura en giro o desgaste del tren de rodaje",
+    "DR-02": "desgaste de cables/poleas, desalineación del tambor o sobrecarga del accionamiento",
+    "CT-33": "sobrecarga del tren de potencia, frenos recalentados o degradación de transmisión",
+    "BD-11": "desgaste del tren de rodaje, sobrecarga de hoja o pérdida hidráulica",
+    "PF-04": "desgaste del cabezal, barra desalineada o sobrecarga del compresor y avance",
+    "TR-01": "desgaste de revestimientos, alimentación excesiva, atasco o daño de rodamientos",
+    "BC-12": "desalineación o destensado de banda, rodillo trabado o empalme degradado",
+    "AP-02": "desalineación de pluma, sobrecarga de cangilones o desgaste de giro/traslación",
+    "CF-06": "sobrecarga del tren de potencia, articulación con holgura o degradación hidráulica",
+    "BA-03": "cavitación, obstrucción de succión, desgaste del impulsor o falla de sello/rodamiento",
+}
+
+FACTOR_GUIDANCE = {
+    "Vibración": ("holgura, desalineación, lubricación deficiente o desgaste en componentes rotativos", "medir vibración axial/radial y revisar fijaciones, alineación, lubricación y rodamientos"),
+    "Temperatura": ("fricción, sobrecarga, refrigeración deficiente u obstrucción", "confirmar temperatura y revisar carga, flujo, limpieza y lubricación"),
+    "Corriente": ("sobrecarga, bloqueo mecánico, desbalance de fases o deterioro del accionamiento", "medir por fase y comprobar conexiones, aislamiento y libertad mecánica"),
+    "Desviación de RPM": ("deslizamiento, pérdida de sincronismo, sensor inestable o transmisión degradada", "contrastar con tacómetro y revisar consigna, sensor, acople y transmisión"),
+    "Presión": ("restricción, fuga, cavitación, filtro saturado o regulación defectuosa", "validar manómetro y revisar filtros, válvulas, fugas, succión y descarga"),
+    "Horas de uso": ("desgaste acumulado y componentes próximos a su intervalo de intervención", "revisar historial, holguras, vida útil y planificar recambio por condición"),
+}
+
+
+def diagnostic_for(machine, factors, risk, status):
+    process, components = PROFILES.get(machine["id"], (machine.get("machine_type", "operación minera"), "componentes críticos"))
+    scenario = SCENARIOS.get(machine["id"], "degradación de componentes mecánicos, eléctricos o hidráulicos")
+    levels = {
+        "healthy": ("Condición estable", "Continuar operación y confirmar la tendencia en la ronda preventiva.", "Seguimiento"),
+        "warning": ("Degradación incipiente", "Aumentar la frecuencia de medición y programar inspección en la próxima ventana segura.", "Planificar"),
+        "critical": ("Riesgo alto de falla", "Evaluar parada controlada, aplicar LOTO y escalar a Operaciones, Mantenimiento y HSE.", "Intervenir"),
+    }
+    level, strategy, priority = levels[status]
+    finding = f"En {process}, el patrón es compatible con {scenario}." if status != "healthy" else f"En {process}, las variables permanecen en condición estable; conservar vigilancia sobre {components}."
+    causes, actions = [finding], [strategy]
+    for factor in factors[:2]:
+        cause, action = FACTOR_GUIDANCE[factor["label"]]
+        causes.append(f"{factor['label']} ({factor['contribution']} puntos): posible {cause}.")
+        actions.append(f"{priority}: {action}.")
+    return {"risk_level": level, "finding": finding, "strategy": strategy, "causes": causes, "actions": actions, "source": f"MAN-MIN-{machine['id']}_mantenimiento_y_operacion.md"}
+
 
 def manual_name(machine):
     return f"MAN-MIN-{machine['code']}_mantenimiento_y_operacion.md"

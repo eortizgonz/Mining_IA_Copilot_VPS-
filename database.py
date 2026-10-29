@@ -57,6 +57,28 @@ def latest_machine_readings():
         return []
 
 
+def machine_risk_trends(hours=24):
+    """Resume el índice de riesgo reciente por código de máquina."""
+    if not database_url():
+        return {}
+    query = """
+        SELECT m.code, count(*) AS samples,
+               round(avg(r.failure_probability)::numeric, 1) AS average,
+               round(min(r.failure_probability)::numeric, 1) AS minimum,
+               round(max(r.failure_probability)::numeric, 1) AS maximum
+        FROM machines m
+        JOIN machine_readings r ON r.machine_id=m.id
+        WHERE m.active AND r.recorded_at >= CURRENT_TIMESTAMP - (%s * interval '1 hour')
+        GROUP BY m.code
+    """
+    try:
+        with connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (hours,))
+            return {row["code"]: {"samples": row["samples"], "average": float(row["average"]), "minimum": float(row["minimum"]), "maximum": float(row["maximum"])} for row in cursor.fetchall()}
+    except psycopg.Error:
+        return {}
+
+
 def find_user(login):
     if not database_url():
         return None
