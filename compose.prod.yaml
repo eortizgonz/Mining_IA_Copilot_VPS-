@@ -1,0 +1,93 @@
+x-app-base: &app-base
+  image: mining-ai-copilot:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env.vps
+  environment:
+    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL requerida}
+    PORT: 5050
+  networks:
+    - mining_backend
+  security_opt:
+    - no-new-privileges:true
+  init: true
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    env_file:
+      - .env.vps
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB requerida}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER requerido}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD requerida}
+    volumes:
+      - mining_postgres_data:/var/lib/postgresql/data
+    networks:
+      - mining_backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  migrate:
+    <<: *app-base
+    command: ["python", "scripts/init_database.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    logging: *default-logging
+
+  app:
+    <<: *app-base
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-5050}:5050"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL requerida}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY requerida}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      PORT: 5050
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *default-logging
+
+  collector:
+    <<: *app-base
+    restart: unless-stopped
+    command: ["sh", "-c", "exec flask --app app run-reading-collector --interval-seconds $${PREDICTIVE_CAPTURE_INTERVAL:-900}"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL requerida}
+      PREDICTIVE_CAPTURE_INTERVAL: ${PREDICTIVE_CAPTURE_INTERVAL:-900}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *default-logging
+
+volumes:
+  mining_postgres_data:
+    name: mining_postgres_data
+
+networks:
+  mining_backend:
+    name: mining_backend
+    driver: bridge

@@ -55,3 +55,12 @@ flask --app app run-reading-collector --interval-seconds 900
 ```
 
 El colector debe ejecutarse como proceso separado de la aplicación web. En Docker Compose ya está definido como el servicio `collector`.
+
+## Despliegue en VPS
+
+La configuración de producción está en `compose.prod.yaml`. Las instrucciones completas, secretos, actualización, logs y respaldo están documentados en [DEPLOY_VPS.md](DEPLOY_VPS.md).
+
+```bash
+cp .env.vps.example .env.vps
+docker compose --env-file .env.vps -f compose.prod.yaml up -d --build
+```
