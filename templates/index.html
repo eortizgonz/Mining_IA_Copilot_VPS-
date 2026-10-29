@@ -73,6 +73,27 @@
   <div class="dialog-body" id="predictive_dialog_body"></div>
 </dialog>
 
+<section class="rag-view" id="rag_view" hidden>
+  <div class="rag-head">
+    <div><span class="eyebrow">CONOCIMIENTO MINERO</span><h2>Documentos RAG de equipos</h2><p>Consulta manuales de operación, mantenimiento y seguridad de los 10 activos mineros.</p></div>
+    <button type="button" id="document_refresh">Actualizar documentos</button>
+  </div>
+  <div class="rag-grid">
+    <article class="rag-card">
+      <h3>Cargar documentación autorizada</h3>
+      <p>PDF, Word, Excel, PowerPoint, TXT, Markdown, CSV, JSON, HTML o XML. Máximo 25 MB por archivo.</p>
+      <form id="document_upload_form"><input id="document_files" name="files" type="file" multiple required><button id="document_upload_button" type="submit">Procesar e indexar</button></form>
+      <div id="document_status" class="rag-status"></div><div id="document_list" class="rag-documents">Cargando documentos…</div>
+    </article>
+    <article class="rag-card rag-chat-card">
+      <h3>Consultar copiloto documental</h3><p>Las respuestas se construyen únicamente con fragmentos recuperados desde pgvector.</p>
+      <div id="rag_messages" class="rag-messages"><div class="rag-message assistant">Pregunta por operación segura, síntomas, inspecciones o mantenimiento de una máquina.</div></div>
+      <form id="rag_chat_form"><textarea id="rag_question" minlength="5" maxlength="2000" placeholder="Ej.: ¿Qué debo revisar si aumenta la vibración de la trituradora TR-01?" required></textarea><button id="rag_send" type="submit">Consultar documentación</button></form>
+    </article>
+  </div>
+  <p class="predictive-disclaimer">Las recomendaciones no sustituyen el manual oficial del fabricante, el análisis de riesgos, los procedimientos HSE ni la autorización de personal competente.</p>
+</section>
+
 <section class="vertical-grid mining-dashboard">
   <div class="mini-card orange"><span>Cumplimiento</span><strong id="kpi_cumplimiento">--</strong><small>Plan mina</small></div>
   <div class="mini-card blue"><span>Disponibilidad</span><strong id="kpi_disponibilidad">--</strong><small>Flota y planta</small></div>

@@ -5,10 +5,12 @@ import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import click
 from flask import Flask, flash, get_flashed_messages, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 from database import (
     consume_password_reset_token,
@@ -22,6 +24,8 @@ from database import (
 )
 from mailer import send_password_reset
 from predictive_collector import append_snapshot
+from mining_machine_manuals import ingest_machine_manuals
+from rag_service import ALLOWED_DOCUMENT_EXTENSIONS, answer_rag, delete_document, ingest_document, list_documents
 
 app = Flask(__name__)
 app.config.update(
@@ -356,11 +360,82 @@ def api_database_health():
     return jsonify(status), 200 if status["connected"] or not status["configured"] else 503
 
 
+@app.post("/api/copilot/chat")
+def copilot_chat():
+    body = request.get_json(silent=True) or {}
+    question = body.get("question", "").strip() if isinstance(body.get("question"), str) else ""
+    if len(question) < 5 or len(question) > 2000:
+        return jsonify({"error": "La pregunta debe tener entre 5 y 2000 caracteres."}), 400
+    try:
+        answer, sources = answer_rag(question)
+        return jsonify({"answer": answer, "sources": sources})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        app.logger.exception("Ollama no disponible")
+        return jsonify({"error": str(exc)}), 503
+    except Exception:
+        app.logger.exception("Error consultando el conocimiento minero")
+        return jsonify({"error": "No fue posible consultar la base documental."}), 503
+
+
+@app.get("/api/documents")
+def documents_index():
+    try:
+        return jsonify(list_documents())
+    except Exception:
+        app.logger.exception("Error listando documentos")
+        return jsonify({"error": "No fue posible consultar los documentos indexados."}), 503
+
+
+@app.post("/api/documents")
+def documents_upload():
+    files = [item for item in request.files.getlist("files") if item and item.filename]
+    if not files or len(files) > 20:
+        return jsonify({"error": "Selecciona entre 1 y 20 documentos."}), 400
+    results = []
+    try:
+        for uploaded in files:
+            filename = secure_filename(uploaded.filename)
+            if not filename or Path(filename).suffix.lower() not in ALLOWED_DOCUMENT_EXTENSIONS:
+                raise ValueError(f"Archivo no compatible: {uploaded.filename}")
+            raw = uploaded.read()
+            if not raw or len(raw) > 25 * 1024 * 1024:
+                raise ValueError(f"El archivo {filename} está vacío o supera 25 MB.")
+            results.append({"document_name": filename, "chunks": ingest_document(filename, raw)})
+        return jsonify({"documents": results, "total": len(results)}), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception:
+        app.logger.exception("Error indexando documentos")
+        return jsonify({"error": "No fue posible procesar los documentos."}), 500
+
+
+@app.delete("/api/documents/<path:document_name>")
+def documents_delete(document_name):
+    try:
+        deleted = delete_document(secure_filename(document_name))
+        if not deleted:
+            return jsonify({"error": "Documento no encontrado."}), 404
+        return jsonify({"deleted_chunks": deleted})
+    except Exception:
+        return jsonify({"error": "No fue posible eliminar el documento."}), 503
+
+
 @app.cli.command("capture-machine-readings")
 def capture_machine_readings():
     """Inserta inmediatamente una lectura para cada máquina activa."""
     inserted = append_snapshot(minimum_interval_seconds=0)
     click.echo(f"Lecturas predictivas insertadas: {inserted}")
+
+
+@app.cli.command("ingest-machine-manuals")
+def ingest_machine_manuals_command():
+    """Genera e indexa manuales RAG para las máquinas mineras activas."""
+    machines, chunks = ingest_machine_manuals()
+    click.echo(f"Manuales mineros indexados: {machines} máquinas, {chunks} fragmentos")
 
 
 @app.cli.command("run-reading-collector")
@@ -370,7 +445,9 @@ def run_reading_collector(interval_seconds):
     click.echo(f"Colector predictivo minero iniciado; intervalo={interval_seconds}s", err=True)
     while True:
         try:
-            inserted = append_snapshot(minimum_interval_seconds=0)
+            # Completa la carga inicial y evita duplicados prematuros si el
+            # proceso se reinicia antes de cumplir el intervalo configurado.
+            inserted = append_snapshot(minimum_interval_seconds=interval_seconds)
             click.echo(f"{datetime.now(timezone.utc).isoformat()} · lecturas insertadas={inserted}", err=True)
         except Exception as error:
             app.logger.exception("Fallo del colector predictivo: %s", error)

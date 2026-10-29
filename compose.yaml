@@ -16,6 +16,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:-development-change-this-secret}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
       PORT: 5050
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1:8b}
     ports:
       - "5050:5050"
     depends_on:

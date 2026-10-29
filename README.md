@@ -54,7 +54,27 @@ Colector continuo, por defecto cada 900 segundos:
 flask --app app run-reading-collector --interval-seconds 900
 ```
 
-El colector debe ejecutarse como proceso separado de la aplicación web. En Docker Compose ya está definido como el servicio `collector`.
+La migración realiza una carga inicial idempotente en `machine_readings`: crea
+una lectura para cada máquina que todavía no tenga datos. Después, el colector
+inserta una nueva lectura por máquina cada 900 segundos y conserva ese intervalo
+incluso si el proceso reinicia. Debe ejecutarse separado de la aplicación web.
+En Docker Compose ya está definido como el servicio `collector`.
+
+## Documentación RAG minera
+
+El módulo **Documentos RAG** usa PostgreSQL con pgvector y Ollama. Genera un
+manual inicial para cada una de las 10 máquinas activas y permite cargar PDF,
+Word, Excel, PowerPoint y documentos de texto desde la interfaz.
+
+```bash
+ollama pull nomic-embed-text
+ollama pull llama3.1:8b
+flask --app app ingest-machine-manuals
+```
+
+Configura `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL` y `OLLAMA_CHAT_MODEL` en el
+entorno. En Docker sobre Linux se incluye el acceso a Ollama mediante
+`host.docker.internal`.
 
 ## Despliegue en VPS
 
