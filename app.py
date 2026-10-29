@@ -1,14 +1,26 @@
 import os
 import random
 import re
+import hashlib
+import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import click
 from flask import Flask, flash, get_flashed_messages, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database import create_user, database_status, find_user, latest_machine_readings
+from database import (
+    consume_password_reset_token,
+    create_password_reset_token,
+    create_user,
+    database_status,
+    find_user,
+    find_user_by_email,
+    latest_machine_readings,
+    password_reset_token_is_valid,
+)
+from mailer import send_password_reset
 from predictive_collector import append_snapshot
 
 app = Flask(__name__)
@@ -19,7 +31,15 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1",
 )
 
-PUBLIC_ENDPOINTS = {"login", "register", "static", "api_database_health"}
+PUBLIC_ENDPOINTS = {
+    "login", "register", "static", "api_database_health",
+    "forgot_password_page", "forgot_password_request",
+    "reset_password_page", "reset_password_submit",
+}
+
+
+def token_digest(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 @app.before_request
@@ -80,6 +100,56 @@ def register():
             except Exception:
                 flash("No fue posible conectar con PostgreSQL. Verifica DATABASE_URL.", "error")
     return render_template("register.html")
+
+
+@app.get("/forgot-password")
+def forgot_password_page():
+    return render_template("forgot_password.html")
+
+
+@app.post("/api/auth/forgot-password")
+def forgot_password_request():
+    body = request.get_json(silent=True) or {}
+    email = body.get("email", "").strip() if isinstance(body.get("email"), str) else ""
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        return jsonify({"error": "Ingresa un correo válido."}), 400
+    generic = {"message": "Si el correo está registrado, recibirás un enlace de recuperación."}
+    try:
+        user = find_user_by_email(email)
+        if user:
+            token = secrets.token_urlsafe(32)
+            create_password_reset_token(user["id"], token_digest(token), datetime.now(timezone.utc) + timedelta(minutes=30))
+            base_url = os.getenv("APP_BASE_URL", request.host_url.rstrip("/")).rstrip("/")
+            send_password_reset(user["email"], f"{base_url}/reset-password/{token}")
+    except Exception:
+        app.logger.exception("No fue posible procesar la recuperación de contraseña")
+    return jsonify(generic)
+
+
+@app.get("/reset-password/<token>")
+def reset_password_page(token):
+    try:
+        valid = password_reset_token_is_valid(token_digest(token))
+    except Exception:
+        valid = False
+    return render_template("reset_password.html", token=token, valid=valid)
+
+
+@app.post("/api/auth/reset-password")
+def reset_password_submit():
+    body = request.get_json(silent=True) or {}
+    token = body.get("token", "") if isinstance(body.get("token"), str) else ""
+    password = body.get("password", "") if isinstance(body.get("password"), str) else ""
+    if len(password) < 10:
+        return jsonify({"error": "La contraseña debe tener al menos 10 caracteres."}), 400
+    try:
+        changed = consume_password_reset_token(token_digest(token), generate_password_hash(password))
+    except Exception:
+        return jsonify({"error": "No fue posible actualizar la contraseña."}), 503
+    if not changed:
+        return jsonify({"error": "El enlace es inválido, expiró o ya fue utilizado."}), 400
+    session.clear()
+    return jsonify({"message": "Contraseña actualizada correctamente."})
 
 
 @app.post("/api/auth/logout")

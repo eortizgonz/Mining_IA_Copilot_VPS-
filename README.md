@@ -64,3 +64,7 @@ La configuración de producción está en `compose.prod.yaml`. Las instrucciones
 cp .env.vps.example .env.vps
 docker compose --env-file .env.vps -f compose.prod.yaml up -d --build
 ```
+
+## Recuperación de contraseña
+
+Configurar `APP_BASE_URL` con la URL pública y las variables `MAIL_HOST`, `MAIL_PORT`, `MAIL_USE_SSL`, `MAIL_USERNAME` y `MAIL_APP_PASSWORD`. Con Gmail se debe utilizar una contraseña de aplicación, no la contraseña normal de la cuenta. Los enlaces vencen en 30 minutos y solo pueden utilizarse una vez.

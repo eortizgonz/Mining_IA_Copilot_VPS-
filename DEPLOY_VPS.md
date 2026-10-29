@@ -45,6 +45,8 @@ Reemplazar `POSTGRES_PASSWORD`, el password dentro de `DATABASE_URL` y `SECRET_K
 
 `SESSION_COOKIE_SECURE=0` permite probar por HTTP. Cambiarlo a `1` únicamente cuando el dominio funcione con HTTPS.
 
+Para recuperar contraseñas, configurar también `APP_BASE_URL` con la URL pública del sitio y las variables `MAIL_*`. En Gmail, `MAIL_APP_PASSWORD` debe ser una contraseña de aplicación.
+
 ## 4. Validar y desplegar
 
 ```bash

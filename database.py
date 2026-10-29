@@ -82,6 +82,39 @@ def create_user(name, email, username, password_hash):
         raise ValueError("El correo o nombre de usuario ya está registrado") from error
 
 
+def find_user_by_email(email):
+    if not database_url():
+        return None
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT id, name, email FROM users WHERE lower(email)=lower(%s) LIMIT 1", (email,))
+        return cursor.fetchone()
+
+
+def create_password_reset_token(user_id, token_hash, expires_at):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP WHERE user_id=%s AND used_at IS NULL", (user_id,))
+        cursor.execute("INSERT INTO password_reset_tokens (user_id,token_hash,expires_at) VALUES (%s,%s,%s)", (user_id, token_hash, expires_at))
+        connection.commit()
+
+
+def password_reset_token_is_valid(token_hash):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM password_reset_tokens WHERE token_hash=%s AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP LIMIT 1", (token_hash,))
+        return cursor.fetchone() is not None
+
+
+def consume_password_reset_token(token_hash, password_hash):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT id,user_id FROM password_reset_tokens WHERE token_hash=%s AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP FOR UPDATE", (token_hash,))
+        token = cursor.fetchone()
+        if not token:
+            return False
+        cursor.execute("UPDATE users SET password_hash=%s WHERE id=%s", (password_hash, token["user_id"]))
+        cursor.execute("UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=%s", (token["id"],))
+        connection.commit()
+        return True
+
+
 def run_migrations():
     sql_dir = Path(__file__).with_name("sql")
     files = sorted(sql_dir.glob("*.sql"))

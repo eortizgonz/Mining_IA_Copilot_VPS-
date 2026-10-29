@@ -21,6 +21,7 @@
       <form method="post">
         <label>Usuario o correo<input name="login" autocomplete="username" maxlength="255" required autofocus></label>
         <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
+        <a class="forgot-link" href="{{ url_for('forgot_password_page') }}">¿Olvidaste tu contraseña?</a>
         <button type="submit">Ingresar a la aplicación</button>
       </form>
       <p class="auth-link">¿Aún no tienes acceso? <a href="{{ url_for('register') }}">Crear usuario</a></p>
