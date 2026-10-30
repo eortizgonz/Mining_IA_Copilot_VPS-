@@ -577,10 +577,23 @@ def run_reading_collector(interval_seconds):
             # Completa la carga inicial y evita duplicados prematuros si el
             # proceso se reinicia antes de cumplir el intervalo configurado.
             inserted = append_snapshot(minimum_interval_seconds=interval_seconds)
-            oee_inserted = append_oee_snapshot(interval_seconds, minimum_interval_seconds=interval_seconds)
-            click.echo(f"{datetime.now(timezone.utc).isoformat()} · lecturas predictivas={inserted} · lecturas OEE={oee_inserted}", err=True)
+            click.echo(f"{datetime.now(timezone.utc).isoformat()} · lecturas predictivas={inserted}", err=True)
         except Exception as error:
             app.logger.exception("Fallo del colector predictivo: %s", error)
+        time.sleep(interval_seconds)
+
+
+@app.cli.command("run-oee-collector")
+@click.option("--interval-seconds", type=click.IntRange(min=60), default=lambda: int(os.getenv("OEE_CAPTURE_INTERVAL", "900")), show_default=True)
+def run_oee_collector(interval_seconds):
+    """Calcula OEE y registra paradas automáticas continuamente."""
+    click.echo(f"Colector OEE minero iniciado; intervalo={interval_seconds}s", err=True)
+    while True:
+        try:
+            inserted = append_oee_snapshot(interval_seconds, minimum_interval_seconds=interval_seconds)
+            click.echo(f"{datetime.now(timezone.utc).isoformat()} · lecturas OEE={inserted}", err=True)
+        except Exception as error:
+            app.logger.exception("Fallo del colector OEE: %s", error)
         time.sleep(interval_seconds)
 
 

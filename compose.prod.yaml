@@ -91,6 +91,19 @@ services:
         condition: service_completed_successfully
     logging: *default-logging
 
+  oee_collector:
+    <<: *app-base
+    restart: unless-stopped
+    command: ["sh", "-c", "exec flask --app app run-oee-collector --interval-seconds $${OEE_CAPTURE_INTERVAL:-900}"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL requerida}
+      OEE_CAPTURE_INTERVAL: ${OEE_CAPTURE_INTERVAL:-900}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Bogota}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *default-logging
+
 volumes:
   mining_postgres_data:
     name: mining_postgres_data

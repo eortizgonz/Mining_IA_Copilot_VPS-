@@ -1,4 +1,15 @@
 services:
+  oee_collector:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://mining:mining_change_me@db:5432/mining_ai
+      OEE_CAPTURE_INTERVAL: ${OEE_CAPTURE_INTERVAL:-900}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Bogota}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["/bin/sh", "-c", "python scripts/init_database.py && flask --app app run-oee-collector --interval-seconds $${OEE_CAPTURE_INTERVAL:-900}"]
+    restart: unless-stopped
   collector:
     build: .
     environment:

@@ -60,6 +60,14 @@ inserta una nueva lectura por máquina cada 900 segundos y conserva ese interval
 incluso si el proceso reinicia. Debe ejecutarse separado de la aplicación web.
 En Docker Compose ya está definido como el servicio `collector`.
 
+El servicio `oee_collector` calcula cada 900 segundos disponibilidad,
+rendimiento, calidad, toneladas y paradas por reglas. Cuando el ciclo genera
+tiempo de parada, también inserta el evento en `mining_downtime_events`.
+
+```bash
+docker compose --env-file .env.vps -f compose.prod.yaml logs -f oee_collector
+```
+
 El mismo proceso registra cada 900 segundos un intervalo en
 `machine_oee_readings` para cada activo: minutos planificados, minutos de
 parada, toneladas objetivo, reales y conformes, disponibilidad, rendimiento,
