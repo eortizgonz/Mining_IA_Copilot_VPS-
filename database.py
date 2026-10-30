@@ -66,8 +66,7 @@ def machine_risk_trends(hours=24):
                round(avg(r.failure_probability)::numeric, 1) AS average,
                round(min(r.failure_probability)::numeric, 1) AS minimum,
                round(max(r.failure_probability)::numeric, 1) AS maximum
-        FROM machines m
-        JOIN machine_readings r ON r.machine_id=m.id
+        FROM machines m JOIN machine_readings r ON r.machine_id=m.id
         WHERE m.active AND r.recorded_at >= CURRENT_TIMESTAMP - (%s * interval '1 hour')
         GROUP BY m.code
     """
@@ -77,6 +76,46 @@ def machine_risk_trends(hours=24):
             return {row["code"]: {"samples": row["samples"], "average": float(row["average"]), "minimum": float(row["minimum"]), "maximum": float(row["maximum"])} for row in cursor.fetchall()}
     except psycopg.Error:
         return {}
+
+
+def list_work_shifts():
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("""SELECT id,code,name,to_char(start_time,'HH24:MI') start_time,
+            to_char(end_time,'HH24:MI') end_time,planned_minutes,active
+            FROM work_shifts ORDER BY start_time,code""")
+        return cursor.fetchall()
+
+
+def get_current_work_shift(current_time):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("""SELECT id,code,name,to_char(start_time,'HH24:MI') start_time,
+            to_char(end_time,'HH24:MI') end_time,planned_minutes,active FROM work_shifts
+            WHERE active AND ((start_time < end_time AND %s::time >= start_time AND %s::time < end_time)
+            OR (start_time > end_time AND (%s::time >= start_time OR %s::time < end_time)))
+            ORDER BY start_time DESC LIMIT 1""", (current_time, current_time, current_time, current_time))
+        return cursor.fetchone()
+
+
+def create_work_shift(code, name, start_time, end_time, planned_minutes, active):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("""INSERT INTO work_shifts(code,name,start_time,end_time,planned_minutes,active)
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,code,name,to_char(start_time,'HH24:MI') start_time,
+            to_char(end_time,'HH24:MI') end_time,planned_minutes,active""", (code, name, start_time, end_time, planned_minutes, active))
+        row = cursor.fetchone(); connection.commit(); return row
+
+
+def update_work_shift(shift_id, code, name, start_time, end_time, planned_minutes, active):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("""UPDATE work_shifts SET code=%s,name=%s,start_time=%s,end_time=%s,planned_minutes=%s,active=%s
+            WHERE id=%s RETURNING id,code,name,to_char(start_time,'HH24:MI') start_time,
+            to_char(end_time,'HH24:MI') end_time,planned_minutes,active""", (code, name, start_time, end_time, planned_minutes, active, shift_id))
+        row = cursor.fetchone(); connection.commit(); return row
+
+
+def delete_work_shift(shift_id):
+    with connect() as connection, connection.cursor() as cursor:
+        cursor.execute("DELETE FROM work_shifts WHERE id=%s RETURNING id", (shift_id,))
+        row = cursor.fetchone(); connection.commit(); return row is not None
 
 
 def find_user(login):

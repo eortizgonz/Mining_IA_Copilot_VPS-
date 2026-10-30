@@ -141,8 +141,11 @@ def resolve_mode(question, requested="auto"):
     if requested != "auto":
         return requested
     normalized = question.casefold()
+    oee_terms = ("oee", "eficiencia global", "disponibilidad", "rendimiento", "performance", "calidad operacional")
     predictive_terms = ("riesgo", "predictiv", "vibración", "vibracion", "temperatura", "corriente", "rpm", "presión", "presion", "telemetría", "telemetria", "lectura", "máquina crítica", "maquina critica")
     troubleshooting_terms = ("alarma", "falla", "fallo", "no arranca", "detenida", "atasco", "ruido", "diagnóstico", "diagnostico")
+    if any(term in normalized for term in oee_terms):
+        return "oee"
     if any(term in normalized for term in predictive_terms):
         return "predictive"
     if any(term in normalized for term in troubleshooting_terms):
@@ -195,10 +198,45 @@ PREGUNTA: {question}"""
     return result["message"]["content"], sources
 
 
+def answer_oee(question):
+    from oee import oee_dashboard
+    from database import list_work_shifts
+
+    normalized = question.casefold()
+    shifts = list_work_shifts()
+    selected_shift = next((shift for shift in shifts if shift["name"].casefold() in normalized or f"turno {shift['code'].casefold()}" in normalized), None)
+    payload = oee_dashboard(7, selected_shift["id"] if selected_shift else None)
+    if not payload["machines"]:
+        raise ValueError("No existen datos de máquinas para calcular el OEE.")
+    selected = [row for row in payload["machines"] if row["code"].casefold() in normalized or row["name"].casefold() in normalized]
+    selected = selected or payload["machines"][:5]
+    summary = payload["summary"]
+    context = [
+        f"OEE global {summary['oee']}%, disponibilidad {summary['availability']}%, rendimiento {summary['performance']}% y calidad {summary['quality']}% para {summary['machines']} máquinas.",
+        f"Fórmula: {payload['formula']}.", f"Turno consultado: {selected_shift['name']} ({selected_shift['start_time']}–{selected_shift['end_time']})." if selected_shift else "Turnos consultados: todos.", payload["note"],
+    ]
+    sources = []
+    for row in selected:
+        context.append(f"{row['code']} {row['name']} ({row['area']}): OEE {row['oee']}%, disponibilidad {row['availability']}%, rendimiento {row['performance']}%, calidad {row['quality']}%, estado {row['status']}; parada {row['downtime_minutes']} min; toneladas objetivo {row['target_tons']}, reales {row['actual_tons']} y conformes {row['conforming_tons']}; lectura {row['recorded_at']}.")
+        sources.append(f"PostgreSQL · machine_oee_readings · {row['code']} · {row['recorded_at']}")
+    prompt = f"""Responde en español usando únicamente los indicadores proporcionados. Explica OEE, disponibilidad, rendimiento y calidad sin presentarlos como mediciones productivas reales cuando son proxies. No inventes cifras. Máximo 220 palabras, texto plano.
+
+INDICADORES OEE:
+{chr(10).join(context)}
+
+PREGUNTA: {question}"""
+    result = _ollama("/api/chat", {"model": os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b"), "messages": [
+        {"role": "system", "content": "Eres un copiloto de eficiencia OEE para minería de carbón. Distingue claramente indicadores medidos de proxies demostrativos."},
+        {"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.0, "num_ctx": 4096, "num_predict": 340}})
+    return result["message"]["content"], sources
+
+
 def answer_chat(question, requested_mode="auto"):
     mode = resolve_mode(question, requested_mode)
     if mode == "predictive":
         answer, sources = answer_predictive(question)
+    elif mode == "oee":
+        answer, sources = answer_oee(question)
     else:
         answer, sources = answer_rag(question, mode)
     return answer, sources, mode

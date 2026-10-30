@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
+import psycopg
 from flask import Flask, flash, get_flashed_messages, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -19,12 +20,20 @@ from database import (
     database_status,
     find_user,
     find_user_by_email,
+    list_work_shifts,
+    create_work_shift,
+    update_work_shift,
+    delete_work_shift,
     latest_machine_readings,
     machine_risk_trends,
     password_reset_token_is_valid,
 )
 from mailer import send_password_reset
 from predictive_collector import append_snapshot
+from oee import oee_dashboard
+from oee_collector import append_oee_snapshot
+from downtime import CATEGORIES, close_downtime, create_downtime, downtime_dashboard
+from turn_dashboard import turn_dashboard
 from mining_machine_manuals import diagnostic_for, ingest_machine_manuals
 from rag_service import ALLOWED_DOCUMENT_EXTENSIONS, answer_chat, delete_document, ingest_document, list_documents
 
@@ -45,6 +54,20 @@ PUBLIC_ENDPOINTS = {
 
 def token_digest(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def work_shift_values(body):
+    code = body.get("code", "").strip().upper() if isinstance(body.get("code"), str) else ""
+    name = body.get("name", "").strip() if isinstance(body.get("name"), str) else ""
+    start_time = body.get("start_time", "").strip() if isinstance(body.get("start_time"), str) else ""
+    end_time = body.get("end_time", "").strip() if isinstance(body.get("end_time"), str) else ""
+    if not re.fullmatch(r"[A-Z0-9_-]{1,20}", code): raise ValueError("Código de turno inválido.")
+    if not name or len(name) > 60: raise ValueError("Nombre de turno inválido.")
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", start_time) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", end_time): raise ValueError("Las horas deben usar HH:MM.")
+    start = int(start_time[:2]) * 60 + int(start_time[3:]); end = int(end_time[:2]) * 60 + int(end_time[3:])
+    planned = (end - start) % 1440
+    if not planned: raise ValueError("El turno debe durar menos de 24 horas.")
+    return code, name, start_time, end_time, planned, bool(body.get("active", True))
 
 
 @app.before_request
@@ -360,6 +383,95 @@ def api_predictive():
     })
 
 
+@app.get("/api/oee")
+def api_oee():
+    try:
+        return jsonify(oee_dashboard(request.args.get("days", 7, type=int), request.args.get("shift_id", type=int)))
+    except Exception:
+        app.logger.exception("No fue posible calcular los indicadores OEE")
+        return jsonify({"error": "No fue posible calcular los indicadores OEE."}), 503
+
+
+@app.get("/api/turn")
+def api_turn():
+    try:
+        return jsonify(turn_dashboard())
+    except Exception:
+        app.logger.exception("No fue posible calcular el estado del turno")
+        return jsonify({"error": "No fue posible calcular el estado del turno."}), 503
+
+
+@app.get("/api/downtime")
+def api_downtime():
+    try:
+        return jsonify(downtime_dashboard(
+            request.args.get("days", 30, type=int), request.args.get("date_from"), request.args.get("date_to"),
+            request.args.get("machine", ""), request.args.get("category", ""), request.args.get("status", ""),
+        ))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        app.logger.exception("No fue posible consultar el historial de paradas")
+        return jsonify({"error": "No fue posible consultar el historial de paradas."}), 503
+
+
+@app.post("/api/downtime")
+def api_downtime_create():
+    body = request.get_json(silent=True) or {}
+    machine = str(body.get("machine", "")).strip().upper()
+    category = str(body.get("category", "")).strip()
+    cause = str(body.get("cause", "")).strip()
+    started_at = str(body.get("started_at", "")).strip()
+    ended_at = str(body.get("ended_at", "")).strip() or None
+    if category not in CATEGORIES: return jsonify({"error": "Selecciona una categoría válida."}), 400
+    if not machine or not started_at or len(cause) < 3: return jsonify({"error": "Máquina, inicio y causa son obligatorios."}), 400
+    try:
+        event_id = create_downtime(machine, category, cause, started_at, ended_at, bool(body.get("planned")), str(body.get("notes", "")).strip()[:500] or None)
+        return jsonify({"id": event_id, "message": "Parada registrada correctamente."}), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        app.logger.exception("No fue posible registrar la parada")
+        return jsonify({"error": "No fue posible registrar la parada."}), 503
+
+
+@app.patch("/api/downtime/<int:event_id>/close")
+def api_downtime_close(event_id):
+    try:
+        closed = close_downtime(event_id, (request.get_json(silent=True) or {}).get("ended_at"))
+        return (jsonify({"closed": True}), 200) if closed else (jsonify({"error": "La parada no existe, ya está cerrada o la hora no es válida."}), 404)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.get("/api/shifts")
+def shifts_index(): return jsonify(list_work_shifts())
+
+
+@app.post("/api/shifts")
+def shifts_create():
+    try: return jsonify(create_work_shift(*work_shift_values(request.get_json(silent=True) or {}))), 201
+    except ValueError as exc: return jsonify({"error": str(exc)}), 400
+    except psycopg.errors.UniqueViolation: return jsonify({"error": "Ya existe un turno con ese código."}), 409
+
+
+@app.put("/api/shifts/<int:shift_id>")
+def shifts_update(shift_id):
+    try:
+        shift = update_work_shift(shift_id, *work_shift_values(request.get_json(silent=True) or {}))
+        return (jsonify(shift), 200) if shift else (jsonify({"error": "Turno no encontrado."}), 404)
+    except ValueError as exc: return jsonify({"error": str(exc)}), 400
+    except psycopg.errors.UniqueViolation: return jsonify({"error": "Ya existe un turno con ese código."}), 409
+
+
+@app.delete("/api/shifts/<int:shift_id>")
+def shifts_delete(shift_id):
+    try:
+        return (jsonify({"deleted": True}), 200) if delete_work_shift(shift_id) else (jsonify({"error": "Turno no encontrado."}), 404)
+    except psycopg.errors.ForeignKeyViolation:
+        return jsonify({"error": "El turno tiene historial OEE; desactívalo en lugar de eliminarlo."}), 409
+
+
 @app.get("/api/health/database")
 def api_database_health():
     status = database_status()
@@ -373,7 +485,7 @@ def copilot_chat():
     mode = body.get("mode", "auto")
     if len(question) < 5 or len(question) > 2000:
         return jsonify({"error": "La pregunta debe tener entre 5 y 2000 caracteres."}), 400
-    if mode not in {"auto", "manuals", "troubleshooting", "predictive"}:
+    if mode not in {"auto", "manuals", "troubleshooting", "predictive", "oee"}:
         return jsonify({"error": "Modo de consulta inválido."}), 400
     try:
         answer, sources, resolved_mode = answer_chat(question, mode)
@@ -447,6 +559,14 @@ def ingest_machine_manuals_command():
     click.echo(f"Manuales mineros indexados: {machines} máquinas, {chunks} fragmentos")
 
 
+@app.cli.command("capture-oee-readings")
+@click.option("--interval-seconds", type=click.IntRange(min=60), default=900, show_default=True)
+def capture_oee_readings(interval_seconds):
+    """Inserta un intervalo OEE por reglas para cada máquina activa."""
+    inserted = append_oee_snapshot(interval_seconds, minimum_interval_seconds=0)
+    click.echo(f"Lecturas OEE insertadas: {inserted}")
+
+
 @app.cli.command("run-reading-collector")
 @click.option("--interval-seconds", type=click.IntRange(min=10), default=lambda: int(os.getenv("PREDICTIVE_CAPTURE_INTERVAL", "900")), show_default=True)
 def run_reading_collector(interval_seconds):
@@ -457,7 +577,8 @@ def run_reading_collector(interval_seconds):
             # Completa la carga inicial y evita duplicados prematuros si el
             # proceso se reinicia antes de cumplir el intervalo configurado.
             inserted = append_snapshot(minimum_interval_seconds=interval_seconds)
-            click.echo(f"{datetime.now(timezone.utc).isoformat()} · lecturas insertadas={inserted}", err=True)
+            oee_inserted = append_oee_snapshot(interval_seconds, minimum_interval_seconds=interval_seconds)
+            click.echo(f"{datetime.now(timezone.utc).isoformat()} · lecturas predictivas={inserted} · lecturas OEE={oee_inserted}", err=True)
         except Exception as error:
             app.logger.exception("Fallo del colector predictivo: %s", error)
         time.sleep(interval_seconds)

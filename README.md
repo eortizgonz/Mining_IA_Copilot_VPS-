@@ -60,6 +60,24 @@ inserta una nueva lectura por máquina cada 900 segundos y conserva ese interval
 incluso si el proceso reinicia. Debe ejecutarse separado de la aplicación web.
 En Docker Compose ya está definido como el servicio `collector`.
 
+El mismo proceso registra cada 900 segundos un intervalo en
+`machine_oee_readings` para cada activo: minutos planificados, minutos de
+parada, toneladas objetivo, reales y conformes, disponibilidad, rendimiento,
+calidad y OEE. La carga manual puede ejecutarse con:
+
+```bash
+flask --app app capture-oee-readings --interval-seconds 900
+```
+
+Estos datos son generados por reglas mientras no existan conexiones con
+PLC/SCADA, Dispatch, básculas y laboratorio; por tanto no representan todavía
+mediciones reales de la operación.
+
+Cada intervalo OEE queda asociado automáticamente al turno activo usando
+`APP_TIMEZONE` (por defecto `America/Bogota`). Los turnos pueden crearse,
+editarse, activarse o desactivarse desde **Eficiencia OEE → Gestionar turnos**;
+el dashboard y el chat permiten calcular o consultar OEE por turno.
+
 ## Documentación RAG minera
 
 El módulo **Documentos RAG** usa PostgreSQL con pgvector y Ollama. Genera un

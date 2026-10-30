@@ -4,6 +4,7 @@ services:
     environment:
       DATABASE_URL: postgresql://mining:mining_change_me@db:5432/mining_ai
       PREDICTIVE_CAPTURE_INTERVAL: ${PREDICTIVE_CAPTURE_INTERVAL:-900}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Bogota}
     depends_on:
       db:
         condition: service_healthy
@@ -16,6 +17,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-development-change-this-secret}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
       PORT: 5050
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Bogota}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1:8b}
