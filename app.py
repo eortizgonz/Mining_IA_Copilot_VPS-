@@ -485,7 +485,7 @@ def copilot_chat():
     mode = body.get("mode", "auto")
     if len(question) < 5 or len(question) > 2000:
         return jsonify({"error": "La pregunta debe tener entre 5 y 2000 caracteres."}), 400
-    if mode not in {"auto", "manuals", "troubleshooting", "predictive", "oee"}:
+    if mode not in {"auto", "manuals", "troubleshooting", "predictive", "oee", "downtime"}:
         return jsonify({"error": "Modo de consulta inválido."}), 400
     try:
         answer, sources, resolved_mode = answer_chat(question, mode)

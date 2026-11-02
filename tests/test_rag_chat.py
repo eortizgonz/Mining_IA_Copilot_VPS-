@@ -14,6 +14,10 @@ class RagChatTest(unittest.TestCase):
 
     def test_resolve_mode(self):
         self.assertEqual(resolve_mode("¿Cuál máquina tiene mayor riesgo?"), "predictive")
+        self.assertEqual(resolve_mode("¿Cuál es la maquina con mayor riegos de falla?"), "predictive")
+        self.assertEqual(resolve_mode("¿Qué equipo tiene mayor probabilidad de fallo?"), "predictive")
+        self.assertEqual(resolve_mode("¿Cuál máquina presenta mayor tiempo por paradas?"), "downtime")
+        self.assertEqual(resolve_mode("¿Cuántas paradas siguen abiertas hoy?"), "downtime")
         self.assertEqual(resolve_mode("La trituradora no arranca"), "troubleshooting")
         self.assertEqual(resolve_mode("¿Qué indica el manual de la banda?"), "manuals")
         self.assertEqual(resolve_mode("¿Cuál máquina tiene el menor OEE?"), "oee")

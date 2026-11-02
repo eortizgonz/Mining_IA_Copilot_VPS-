@@ -3,8 +3,10 @@ import json
 import os
 import urllib.error
 import urllib.request
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from docx import Document
 from openpyxl import load_workbook
@@ -141,12 +143,24 @@ def resolve_mode(question, requested="auto"):
     if requested != "auto":
         return requested
     normalized = question.casefold()
+    downtime_terms = ("parada", "paradas", "detención", "detencion", "tiempo detenido", "indisponibilidad", "microparada", "evento abierto", "eventos abiertos")
     oee_terms = ("oee", "eficiencia global", "disponibilidad", "rendimiento", "performance", "calidad operacional")
     predictive_terms = ("riesgo", "predictiv", "vibración", "vibracion", "temperatura", "corriente", "rpm", "presión", "presion", "telemetría", "telemetria", "lectura", "máquina crítica", "maquina critica")
     troubleshooting_terms = ("alarma", "falla", "fallo", "no arranca", "detenida", "atasco", "ruido", "diagnóstico", "diagnostico")
+    if any(term in normalized for term in downtime_terms):
+        return "downtime"
     if any(term in normalized for term in oee_terms):
         return "oee"
-    if any(term in normalized for term in predictive_terms):
+    # "rieg/riesg" tolera errores frecuentes como "riegos". Una pregunta
+    # comparativa sobre la falla de una máquina también busca el ranking
+    # predictivo, no un procedimiento documental de solución de fallas.
+    comparative_failure = (
+        any(term in normalized for term in ("mayor", "menor", "más", "mas"))
+        and any(term in normalized for term in ("máquina", "maquina", "equipo", "activo"))
+        and any(term in normalized for term in ("falla", "fallo"))
+    )
+    risk_intent = any(term in normalized for term in ("rieg", "riesg", "probabilidad de falla", "probabilidad de fallo", "índice de falla", "indice de falla"))
+    if risk_intent or comparative_failure or any(term in normalized for term in predictive_terms):
         return "predictive"
     if any(term in normalized for term in troubleshooting_terms):
         return "troubleshooting"
@@ -231,12 +245,60 @@ PREGUNTA: {question}"""
     return result["message"]["content"], sources
 
 
+def answer_downtime(question):
+    from downtime import downtime_dashboard
+
+    normalized = question.casefold()
+    local_today = datetime.now(ZoneInfo(os.getenv("APP_TIMEZONE", "America/Bogota"))).date()
+    if "hoy" in normalized:
+        payload = downtime_dashboard(date_from=local_today.isoformat(), date_to=local_today.isoformat())
+        period = f"hoy {local_today.isoformat()}"
+    else:
+        days = 7 if any(term in normalized for term in ("semana", "7 días", "7 dias")) else 30
+        payload = downtime_dashboard(days=days)
+        period = f"los últimos {days} días"
+    if not payload["events"]:
+        raise ValueError(f"No existen paradas registradas para {period}.")
+    selected = [event for event in payload["events"] if event["machine_code"].casefold() in normalized or event["machine_name"].casefold() in normalized]
+    selected = selected or payload["events"][:12]
+    machine_totals = {}
+    for event in payload["events"]:
+        current = machine_totals.setdefault(event["machine_code"], {"name": event["machine_name"], "events": 0, "minutes": 0.0, "open": 0})
+        current["events"] += 1
+        current["minutes"] += float(event["duration_minutes"])
+        current["open"] += event["status"] == "open"
+    ranking = sorted(machine_totals.items(), key=lambda item: item[1]["minutes"], reverse=True)
+    summary = payload["summary"]
+    context = [
+        f"Periodo: {period}. Total {summary['events']} eventos, {summary['total_minutes']} minutos, promedio {summary['average_minutes']} minutos y {summary['open_events']} eventos abiertos.",
+        "Ranking por tiempo detenido: " + "; ".join(f"{code} {data['name']}: {data['events']} eventos, {data['minutes']:.1f} min, {data['open']} abiertos" for code, data in ranking[:10]),
+        "Categorías: " + "; ".join(f"{row['category']}: {row['events']} eventos, {row['minutes']} min" for row in payload["by_category"][:10]),
+    ]
+    sources = []
+    for event in selected[:12]:
+        context.append(f"Evento {event['id']}: {event['machine_code']} {event['machine_name']}, inicio {event['started_at']}, fin {event['ended_at'] or 'abierta'}, duración {event['duration_minutes']} min, categoría {event['category']}, causa {event['cause']}, estado {event['status']}, turno {event['shift_name'] or 'sin turno'}, origen {event['source']}.")
+        if len(sources) < 5:
+            sources.append(f"PostgreSQL · mining_downtime_events · evento {event['id']}")
+    prompt = f"""Responde en español usando exclusivamente el historial de paradas suministrado. Distingue eventos abiertos y cerrados, y datos manuales de eventos estimados por reglas. No inventes cifras. Máximo 220 palabras, texto plano.
+
+HISTORIAL DE PARADAS:
+{chr(10).join(context)}
+
+PREGUNTA: {question}"""
+    result = _ollama("/api/chat", {"model": os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b"), "messages": [
+        {"role": "system", "content": "Eres un copiloto de confiabilidad para minería de carbón. Analiza fielmente el historial de paradas de PostgreSQL."},
+        {"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.0, "num_ctx": 4096, "num_predict": 340}})
+    return result["message"]["content"], sources
+
+
 def answer_chat(question, requested_mode="auto"):
     mode = resolve_mode(question, requested_mode)
     if mode == "predictive":
         answer, sources = answer_predictive(question)
     elif mode == "oee":
         answer, sources = answer_oee(question)
+    elif mode == "downtime":
+        answer, sources = answer_downtime(question)
     else:
         answer, sources = answer_rag(question, mode)
     return answer, sources, mode
